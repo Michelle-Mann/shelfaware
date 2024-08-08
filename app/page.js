@@ -4,10 +4,10 @@ import React, { useState, useEffect } from 'react';
 import {
   AppBar, Box, Button, Divider, Fab, Modal, Stack, TextField, Toolbar, Typography, IconButton,
   Drawer, List, ListItem, ListItemIcon, ListItemText, Grid, FormControl, InputLabel, Select,
-  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions
+  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Popover
 } from '@mui/material';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, setDoc
+  collection, deleteDoc, doc, getDoc, getDocs, setDoc, addDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signInWithPopup, signOut } from 'firebase/auth';
@@ -35,34 +35,51 @@ const Page = () => {
   const [authOpen, setAuthOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState('');
-  const [defaultImageUrl, setDefaultImageUrl] = useState('');
+  const [anchorEl, setAnchorEl] = useState(null);
 
   useEffect(() => {
-    updateInventory();
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
-      setUser(currentUser);
+      if (currentUser) {
+        setUser(currentUser);
+        fetchInventory(currentUser.uid); // Fetch inventory when user logs in
+      } else {
+        setUser(null);
+        setInventory([]); // Clear inventory when user logs out
+      }
     });
     return unsubscribe; // Cleanup subscription on unmount
   }, []);
 
-  useEffect(() => {
-    const fetchDefaultImage = async () => {
-      const defaultImageRef = ref(storage, 'https://firebasestorage.googleapis.com/v0/b/shelf-aware.appspot.com/o/images%2FdefaultImage.jpg?alt=media&token=9154c1fd-e8ea-4c42-ae69-6c52cdb3e438'); // Adjust the path as needed
-      try {
-        const url = await getDownloadURL(defaultImageRef);
-        setDefaultImageUrl(url);
-      } catch (error) {
-        console.error('Failed to fetch default image', error);
-      }
-    };
+  const fetchInventory = async (uid) => {
+    const inventoryRef = collection(firestore, 'users', uid, 'inventory');
+    const querySnapshot = await getDocs(inventoryRef);
+    const items = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    setInventory(items);
+  };
 
-    fetchDefaultImage();
-  }, []);
+  const initializeUserData = async (uid) => {
+    const userRef = doc(firestore, 'users', uid);
+    const userSnapshot = await getDoc(userRef);
+
+    if (!userSnapshot.exists()) {
+      // Initialize user data
+      await setDoc(userRef, {
+        inventory: [] // Example of user-specific data
+      });
+    }
+  };
 
   const handleGoogleAuth = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      setUser(user);
+      await initializeUserData(user.uid);
       setAuthOpen(false); // Close the dialog on successful authentication
+      fetchInventory(user.uid); // Fetch the user's inventory
     } catch (error) {
       console.error('Google Authentication Error:', error.message);
     }
@@ -71,22 +88,17 @@ const Page = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setAnchorEl(null); // Close the popover on logout
+      setUser(null);
+      setInventory([]); // Clear inventory on logout
     } catch (error) {
       console.error('Logout Error:', error);
     }
   };
 
-  const updateInventory = async () => {
-    const q = query(collection(firestore, 'inventory'));
-    const querySnapshot = await getDocs(q);
-    const items = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    setInventory(items);
-  };
-
   const saveItem = async () => {
+    if (!user) return; // Ensure user is logged in
+
     let imageUrl = '';
     if (imageFile) {
       const imageRef = ref(storage, `images/${itemName}-${Date.now()}`);
@@ -94,41 +106,36 @@ const Page = () => {
       imageUrl = await getDownloadURL(imageRef);
     }
 
-    const itemRef = doc(firestore, 'inventory', itemName || `${Date.now()}`);
-    const itemSnapshot = await getDoc(itemRef);
+    const inventoryRef = collection(firestore, 'users', user.uid, 'inventory');
 
-    if (editMode) {
+    if (editMode && currentItemId) {
+      const itemRef = doc(inventoryRef, currentItemId);
       await setDoc(itemRef, {
+        name: itemName,
         quantity: parseInt(quantity, 10),
         measurement,
         location,
-        imageUrl: imageUrl || itemSnapshot.data()?.imageUrl
+        imageUrl: imageUrl || (await getDoc(itemRef)).data()?.imageUrl
       }, { merge: true });
     } else {
-      if (itemSnapshot.exists()) {
-        await setDoc(itemRef, {
-          quantity: (itemSnapshot.data().quantity || 0) + parseInt(quantity, 10),
-          measurement: measurement || itemSnapshot.data().measurement,
-          location: location || itemSnapshot.data().location,
-          imageUrl: imageUrl || itemSnapshot.data().imageUrl
-        }, { merge: true });
-      } else {
-        await setDoc(itemRef, {
-          name: itemName,
-          quantity: parseInt(quantity, 10),
-          measurement,
-          location,
-          imageUrl
-        });
-      }
+      await addDoc(inventoryRef, {
+        name: itemName,
+        quantity: parseInt(quantity, 10),
+        measurement,
+        location,
+        imageUrl
+      });
     }
-    updateInventory();
+
+    fetchInventory(user.uid);
     handleClose();
   };
 
   const removeItem = async (id) => {
-    await deleteDoc(doc(firestore, 'inventory', id));
-    updateInventory();
+    if (!user) return; // Ensure user is logged in
+    const itemRef = doc(firestore, 'users', user.uid, 'inventory', id);
+    await deleteDoc(itemRef);
+    fetchInventory(user.uid);
   };
 
   const handleOpen = (edit = false, item = {}) => {
@@ -170,6 +177,16 @@ const Page = () => {
     }
   };
 
+  const handleProfileClick = (event) => {
+    setAnchorEl(event.currentTarget); // Open popover
+  };
+
+  const handlePopoverClose = () => {
+    setAnchorEl(null); // Close popover
+  };
+
+  const openPopover = Boolean(anchorEl);
+
   return (
     <Box sx={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
       <AppBar sx={{
@@ -185,9 +202,27 @@ const Page = () => {
             |s|h|e|l|f| aware
           </Typography>
           {user ? (
-            <IconButton color="inherit" onClick={handleLogout} sx={{ fontSize: 40 }}>
-              <LogoutIcon sx={{ fontSize: 'inherit' }} />
-            </IconButton>
+            <Box display="flex" alignItems="center">
+              <Typography variant="h6" sx={{ marginRight: 2 }}>{user.displayName}</Typography>
+              <IconButton color="inherit" onClick={handleProfileClick} sx={{ fontSize: 40 }}>
+                <img src={user.photoURL} alt="Profile" style={{ width: 40, height: 40, borderRadius: '50%' }} />
+              </IconButton>
+              <Popover
+                open={openPopover}
+                anchorEl={anchorEl}
+                onClose={handlePopoverClose}
+                anchorOrigin={{
+                  vertical: 'bottom',
+                  horizontal: 'right',
+                }}
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+              >
+                <Button onClick={handleLogout} fullWidth>Logout</Button>
+              </Popover>
+            </Box>
           ) : (
             <IconButton color="inherit" onClick={() => setAuthOpen(true)} sx={{ fontSize: 40 }}>
               <AccountCircle sx={{ fontSize: 'inherit' }} />
@@ -241,7 +276,7 @@ const Page = () => {
               </ListItemIcon>
               <ListItemText primary="Create Shopping List" />
             </ListItem>
-            <ListItem button>
+            <ListItem button onClick={handleLogout}>
               <ListItemIcon>
                 <LogoutIcon />
               </ListItemIcon>
@@ -287,9 +322,9 @@ const Page = () => {
                   item.location === 'Pantry' &&
                   item.name.toLowerCase().includes(searchItem.toLowerCase())
               )
-              .map(({ name, quantity, measurement, imageUrl }) => (
+              .map(({ id, name, quantity, measurement, imageUrl }) => (
                 <Box
-                  key={name}
+                  key={id}
                   width="180px"
                   minHeight="100px"
                   display="flex"
@@ -303,7 +338,7 @@ const Page = () => {
                 >
                   {imageUrl && (
                     <img
-                      src={imageUrl || defaultImageUrl} // Use the fetched default image URL as a fallback
+                      src={imageUrl}
                       alt={`${name} image`}
                       style={{ width: '100%', borderRadius: '8px', marginBottom: '8px' }}
                     />
@@ -325,10 +360,10 @@ const Page = () => {
                     Quantity: {quantity} {measurement}
                   </Typography>
                   <Box display="flex" justifyContent="space-between" width="100%">
-                    <Button variant="outlined" onClick={() => handleOpen(true, { name, quantity, measurement, location: 'Pantry', imageUrl })}>
+                    <Button variant="outlined" onClick={() => handleOpen(true, { id, name, quantity, measurement, location: 'Pantry', imageUrl })}>
                       <EditIcon />
                     </Button>
-                    <Button variant="outlined" onClick={() => handleConfirmOpen(name)}>
+                    <Button variant="outlined" onClick={() => handleConfirmOpen(id)}>
                       <DeleteForeverIcon />
                     </Button>
                   </Box>
@@ -355,9 +390,9 @@ const Page = () => {
                   item.location === 'Refrigerator' &&
                   item.name.toLowerCase().includes(searchItem.toLowerCase())
               )
-              .map(({ name, quantity, measurement, imageUrl }) => (
+              .map(({ id, name, quantity, measurement, imageUrl }) => (
                 <Box
-                  key={name}
+                  key={id}
                   width="180px"
                   minHeight="100px"
                   display="flex"
@@ -392,10 +427,10 @@ const Page = () => {
                     Quantity: {quantity} {measurement}
                   </Typography>
                   <Box display="flex" justifyContent="space-between" width="100%">
-                    <Button variant="outlined" onClick={() => handleOpen(true, { name, quantity, measurement, location: 'Refrigerator', imageUrl })}>
+                    <Button variant="outlined" onClick={() => handleOpen(true, { id, name, quantity, measurement, location: 'Refrigerator', imageUrl })}>
                       <EditIcon />
                     </Button>
-                    <Button variant="outlined" onClick={() => handleConfirmOpen(name)}>
+                    <Button variant="outlined" onClick={() => handleConfirmOpen(id)}>
                       <DeleteForeverIcon />
                     </Button>
                   </Box>
@@ -422,9 +457,9 @@ const Page = () => {
                   item.location === 'Freezer' &&
                   item.name.toLowerCase().includes(searchItem.toLowerCase())
               )
-              .map(({ name, quantity, measurement, imageUrl }) => (
+              .map(({ id, name, quantity, measurement, imageUrl }) => (
                 <Box
-                  key={name}
+                  key={id}
                   width="180px"
                   minHeight="100px"
                   display="flex"
@@ -459,10 +494,10 @@ const Page = () => {
                     Quantity: {quantity} {measurement}
                   </Typography>
                   <Box display="flex" justifyContent="space-between" width="100%">
-                    <Button variant="outlined" onClick={() => handleOpen(true, { name, quantity, measurement, location: 'Freezer', imageUrl })}>
+                    <Button variant="outlined" onClick={() => handleOpen(true, { id, name, quantity, measurement, location: 'Freezer', imageUrl })}>
                       <EditIcon />
                     </Button>
-                    <Button variant="outlined" onClick={() => handleConfirmOpen(name)}>
+                    <Button variant="outlined" onClick={() => handleConfirmOpen(id)}>
                       <DeleteForeverIcon />
                     </Button>
                   </Box>
