@@ -6,7 +6,7 @@ Submitted by: Michelle Mann
 
 Here's a video / GIF that demos all of the app's implemented features:
 
-<img src='https://i.imgur.com/BZY5BaP.gif' title='Video Demo' width='720px' alt='Video Demo' />
+<img src='https://i.imgur.com/BZY5BaP.gif' title='Video Demo' width='400px' alt='Video Demo' />
 
 GIF created with ScreenToGif
 
