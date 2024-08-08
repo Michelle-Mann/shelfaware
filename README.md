@@ -2,6 +2,9 @@ Headstarter AI || Project #2: Pantry App - |s|h|e|l|f|aware
 
 Submitted by: Michelle Mann
 
+Website: https://shelfaware.vercel.app/
+See a live demo at: https://www.youtube.com/watch?v=w_4pc_2gobs
+
 Summary
 This project comes a few days late of submittal for week #2 for the summer 2024 Headstarter Ai Fellowship.
 
@@ -17,7 +20,7 @@ The following REQUIRED features are completed:
 
 - I set up a Next.js project with Material UI components
 - I implemented a Firebase backend for data storage
-- I created af orm to add, delete and update pantry items
+- I created a form to add, delete and update pantry items
 - I added a search or filter functionality to easily find items (I have several due to my split pantry set-up)
 - I created a presentable frontend design to display all pantry items
 - I deployed to Vercel and used CI/CD 
