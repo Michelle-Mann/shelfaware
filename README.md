@@ -2,6 +2,14 @@ Headstarter AI || Project #2: Pantry App - |s|h|e|l|f|aware
 
 Submitted by: Michelle Mann
 
+## Video Demo
+
+Here's a video / GIF that demos all of the app's implemented features:
+
+<img src='https://i.imgur.com/BZY5BaP.gif' title='Video Demo' width='' alt='Video Demo' />
+
+GIF created with ScreenToGif
+
 Website: https://shelfaware.vercel.app/
 See a live demo at: https://www.youtube.com/watch?v=w_4pc_2gobs
 
